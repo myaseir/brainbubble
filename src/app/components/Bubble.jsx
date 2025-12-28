@@ -20,9 +20,11 @@ const BubbleGame = ({ onRestart }) => {
   const [showPerfectRound, setShowPerfectRound] = useState(false);
 const [won, setWon] = useState(false);
 const [gameStarted, setGameStarted] = useState(false);
+const [roundTimer, setRoundTimer] = useState(10); // current timer countdown
+const [timerSpeed, setTimerSpeed] = useState(10000); // round duration in ms
+const roundTimerRef = useRef(null); // ref to store interval
 
-const [health, setHealth] = useState(0);
-const [streak, setStreak] = useState(0);
+
 
 
 
@@ -34,6 +36,7 @@ const [streak, setStreak] = useState(0);
   const winAudioRef = useRef(null);
   const startSoundRef = useRef(null);
 const returnSoundRef = useRef(null);
+const tickAudioRef = useRef(null);
 
 useEffect(() => {
   const handleVisibilityChange = () => {
@@ -117,15 +120,17 @@ useEffect(() => {
 
 // Call vibrate() on correct/wrong answers
   // Generate random positions
- const generatePositions = useCallback((count) => {
+const generatePositions = useCallback((count) => {
   const positions = [];
-
-  const minDistance = 15; // minimum distance in % between bubbles
+  
+  const minDistanceX = 20; // horizontal minimum distance in %
+  const minDistanceY = 25; // vertical minimum distance in %
 
   function distance(pos1, pos2) {
     const dx = pos1.left - pos2.left;
     const dy = pos1.top - pos2.top;
-    return Math.sqrt(dx * dx + dy * dy);
+    // Use separate x and y checks for oval spacing
+    return Math.abs(dx) > minDistanceX || Math.abs(dy) > minDistanceY;
   }
 
   for (let i = 0; i < count; i++) {
@@ -133,17 +138,18 @@ useEffect(() => {
     let tries = 0;
     do {
       newPos = {
-        left: 10 + Math.random() * 80,
-        top: 15 + Math.random() * 70
+        left: 10 + Math.random() * 80,  // 10% to 90%
+        top: 15 + Math.random() * 70    // 15% to 85%
       };
       tries++;
-      if (tries > 100) break; // fail-safe to avoid infinite loops
-    } while (positions.some(pos => distance(pos, newPos) < minDistance));
+      if (tries > 200) break; // fail-safe to avoid infinite loops
+    } while (!positions.every(pos => distance(pos, newPos))); // ensure all existing positions are far enough
     positions.push(newPos);
   }
 
   return positions;
 }, []);
+
 
 
   // Generate unique numbers
@@ -156,7 +162,7 @@ useEffect(() => {
   }, []);
 
 
-  const startRound = useCallback((roundNum) => {
+const startRound = useCallback((roundNum) => {
   setShowRoundScreen(true);
   setCountdown(3);
 
@@ -167,7 +173,7 @@ useEffect(() => {
       clearInterval(interval);
       setShowRoundScreen(false);
 
-      const count = 4; // keep 5 bubbles always
+      const count = 4;
       const nums = generateNumbers(count);
       const pos = generatePositions(count);
       setNumbers(nums);
@@ -178,35 +184,62 @@ useEffect(() => {
       setCorrectNumbers([]);
       setGameState('showing');
 
-    const revealTime = Math.max(initialRevealTime - (roundNum - 1) * 500, minRevealTime);
+      const revealTime = Math.max(initialRevealTime - (roundNum - 1) * 500, minRevealTime);
 
-
-      console.log('Round:', roundNum, 'Reveal time (ms):', revealTime);
-      
       setTimeout(() => {
         setGameState('playing');
+
+        // ----------------- START ROUND TIMER -----------------
+        const duration = Math.max(10000 - (roundNum - 1) * 1000, 5000); // 10s → 5s max speed
+        setTimerSpeed(duration);
+        setRoundTimer(duration / 1000);
+
+        // Clear previous timer if exists
+        if (roundTimerRef.current) clearInterval(roundTimerRef.current);
+
+        let timer = duration / 1000;
+        roundTimerRef.current = setInterval(() => {
+          timer -= 1;
+          setRoundTimer(timer);
+        // When game over happens, also reset the countdown
+if (timer <= 0) {
+  clearInterval(roundTimerRef.current);
+  roundTimerRef.current = null;
+
+  setError(true);
+  setGameState('gameover');
+  setCountdown(0); // hide countdown
+  gameOverAudioRef.current?.play();
+}
+
+        }, 1000);
+
       }, revealTime);
+
     } else {
       setCountdown(counter);
     }
   }, 500);
 }, [generateNumbers, generatePositions]);
-  // Start new game
+
+
 const startGame = useCallback(() => {
   setGameStarted(true);
-  setHealth(0);      // Reset health to 0 when starting game
-  setStreak(0);      // Reset streak to 0
   setScore(0);
   setRound(1);
   setClickedNumbers([]);
   setCorrectNumbers([]);
+  setRoundTimer(10);        // reset timer
+  if (roundTimerRef.current) {
+    clearInterval(roundTimerRef.current);
+    roundTimerRef.current = null;
+  }
   startRound(1);
   if (audioRef.current) {
-    audioRef.current.play().catch(() => {
-      // autoplay might be blocked, can handle fallback here if needed
-    });
+    audioRef.current.play().catch(() => {});
   }
 }, [startRound]);
+
 
 
   // Start new round
@@ -221,91 +254,75 @@ const handleClick = (num) => {
   if (gameState !== 'playing') return;
 
   const sorted = [...numbers].sort((a, b) => a - b);
+
+  // Track clicked numbers
   setClickedNumbers(prev => [...prev, num]);
 
   if (num === sorted[currentStep]) {
+    // ✅ Correct click
     setCorrectNumbers(prev => [...prev, num]);
-    vibrate(100); // short buzz on correct click
+    vibrate(100);
+    correctAudioRef.current?.play();
 
-    // Play correct click sound
-    if (correctAudioRef.current) {
-      correctAudioRef.current.currentTime = 0;
-      correctAudioRef.current.play().catch(() => {});
-    }
-
+    // Check if round is complete
     if (currentStep + 1 === sorted.length) {
-      // Round complete - calculate new score first
       const updatedScore = score + numbers.length;
       const newRound = round + 1;
 
-      // Then check high score
+      // Update high score
       if (updatedScore > highScore) {
         localStorage.setItem('highScore', updatedScore);
         setHighScore(updatedScore);
       }
-
       setScore(updatedScore);
 
-      // Increase streak by 1 or reset if hits 4
-      setStreak(prevStreak => (prevStreak + 1 === 4 ? 0 : prevStreak + 1));
+      // Perfect round celebration
+     // Perfect round celebration
+if (!error) {
+  setShowPerfectRound(true);
 
-      // Show Perfect Round celebration if no errors this round
-      if (!error) {
-        setShowPerfectRound(true);
-        setTimeout(() => setShowPerfectRound(false), 2000);
-      }
+  // Stop the current round timer immediately
+  if (roundTimerRef.current) {
+    clearInterval(roundTimerRef.current);
+    roundTimerRef.current = null;
+    setRoundTimer(0); // reset timer display
+  }
+
+  setTimeout(() => setShowPerfectRound(false), 1000);
+}
+
 
       if (newRound > maxRound) {
+        // 🎉 Player won
         setWon(true);
         setGameState('gameover');
-
-        // Play winning sound
-        if (winAudioRef.current) {
-          winAudioRef.current.currentTime = 0;
-          winAudioRef.current.play().catch(() => {});
-        }
+        winAudioRef.current?.play();
       } else {
+        // Start next round
         setRound(newRound);
         startRound(newRound);
       }
     } else {
+      // Move to next number in sequence
       setCurrentStep(prev => prev + 1);
     }
   } else {
-    vibrate([200, 100, 200]); // longer vibration on error
+    // ❌ Wrong click → immediate game over
+    setError(true);
+    vibrate([200, 100, 200]);
+    wrongAudioRef.current?.play();
 
-    // Play wrong click sound
-    if (wrongAudioRef.current) {
-      wrongAudioRef.current.currentTime = 0;
-      wrongAudioRef.current.play().catch(() => {});
-    }
-
-    // On error: consume health if available, reset streak
-    if (health > 0) {
-      setHealth(h => h - 1);
-      setStreak(0);
-      setError(true);
-      setTimeout(() => setError(false), 1000);
-    } else {
-      // no health left -> game over
-      setError(true);
-      setTimeout(() => setGameState('gameover'), 1000);
-
-      // Play game over sound
-      if (gameOverAudioRef.current) {
-        gameOverAudioRef.current.currentTime = 0;
-        gameOverAudioRef.current.play().catch(() => {});
-      }
-    }
+    // Optional short delay for shake animation
+    setTimeout(() => {
+      setGameState('gameover');
+      gameOverAudioRef.current?.play();
+    }, 300);
   }
 };
 
+
 // And add this useEffect somewhere inside your component to handle health increment:
-useEffect(() => {
-  if (streak === 4) {
-    setHealth(h => h + 1);
-  }
-}, [streak]);
+
 
 
 
@@ -317,6 +334,8 @@ useEffect(() => {
       <audio ref={audioRef} src="/bgmusic.mp3" loop preload="auto" />
 
       {/* Sound effects */}
+      <audio ref={tickAudioRef} src="/gametimer.mp3" preload="auto" />
+
       <audio ref={correctAudioRef} src="/tap.wav" preload="auto" />
       <audio ref={wrongAudioRef} src="/error.mp3" preload="auto" />
       <audio ref={gameOverAudioRef} src="/over.wav" preload="auto" />
@@ -327,16 +346,17 @@ useEffect(() => {
 
       <div className={styles.header}>
         <div className={styles.icon}>🧠</div>
-        {/* <div className={styles.highScore}>Best: {highScore} Round: {round} </div> */}
+        <div className={styles.roundTimer}>
+  ⏱ {roundTimer}s
+</div>
+
+       
 
         <div className={styles.score}>Score: {score}
 </div>
         <div className={styles.icon}>☰</div>
       </div>
-<div className={styles.statusBar}>
-  <div>Health: {health}</div>
-  <div>Streak: {streak}</div>
-</div>
+
 
 
       <div className={styles.bubblesContainer}>
@@ -352,9 +372,12 @@ useEffect(() => {
             }}
             onClick={() => handleClick(num)}
           >
-            {(gameState === 'showing' || gameState === 'gameover' || clickedNumbers.includes(num)) && (
-              <span className={styles.number}>{num}</span>
-            )}
+            <span className={styles.number}>
+  {(gameState === 'showing' || gameState === 'gameover' || clickedNumbers.includes(num))
+    ? num
+    : ''}
+</span>
+
             {correctNumbers.includes(num) && (
               <span className={styles.checkmark}>✓</span>
             )}
@@ -388,14 +411,28 @@ useEffect(() => {
         <p>Score: {score}</p>
       </>
     )}
-  <button onClick={() => {
+ <button onClick={() => {
+  // Stop all audio before restarting
+  winAudioRef.current?.pause();
+  winAudioRef.current.currentTime = 0;
+  gameOverAudioRef.current?.pause();
+  gameOverAudioRef.current.currentTime = 0;
+  wrongAudioRef.current?.pause();
+  wrongAudioRef.current.currentTime = 0;
+  correctAudioRef.current?.pause();
+  correctAudioRef.current.currentTime = 0;
+
   if (returnSoundRef.current) {
     returnSoundRef.current.currentTime = 0;
     returnSoundRef.current.play().catch(() => {});
   }
-  setWon(false); // reset winning state on restart
+
+  setWon(false); // reset winning state
   startGame();
-}}>Restart</button>
+}}>
+  Restart
+</button>
+
   </div>
   
 )}

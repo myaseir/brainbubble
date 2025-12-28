@@ -1,14 +1,14 @@
-/* components/BubbleGame.module.css */
-
+/* ---------------- Container & Background ---------------- */
 .container {
   position: relative;
- height: 100vh; /* Full viewport height */
-  overflow: hidden; 
+  height: 100vh;
   width: 100%;
- 
   background-color: #f5f5f7;
   overflow: hidden;
-/* Add to BubbleGame.module.css */
+  font-family: 'Inter', sans-serif;
+  z-index: 1; /* content above particles */
+}
+
 .particleBackground {
   position: fixed;
   top: 0;
@@ -22,12 +22,11 @@
 
 .particle {
   position: absolute;
-  width: 4px;
-  height: 4px;
-  background: rgba(169, 196, 202, 0.5);
+  width: 5px;
+  height: 5px;
+  background-color: rgba(50, 52, 53, 0.4);
   border-radius: 50%;
   animation: float 15s linear infinite;
-  will-change: transform;
 }
 
 @keyframes float {
@@ -35,14 +34,7 @@
   100% { transform: translateY(-20vh); }
 }
 
-.container {
-  position: relative;
-  z-index: 1; /* Ensure game content appears above particles */
-}
-  z-index: 1; 
-  font-family: 'Inter', sans-serif;
-}
-
+/* ---------------- Header ---------------- */
 .header {
   display: flex;
   justify-content: space-between;
@@ -68,15 +60,8 @@
   font-weight: bold;
   color: #333;
 }
-.highScore {
-  font-size: 0.9rem;
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: left;
-  justify-content: left;
-}
 
+/* ---------------- Bubbles ---------------- */
 .bubblesContainer {
   position: relative;
   width: 100%;
@@ -85,9 +70,9 @@
 
 .bubble {
   position: absolute;
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
+  width: 60px;   /* narrower for vertical oval */
+  height: 80px;  /* taller than wide */
+  border-radius: 50% / 40%; /* vertical ellipse */
   background-color: #a9c4ca;
   color: white;
   display: flex;
@@ -96,13 +81,24 @@
   font-weight: bold;
   border: none;
   cursor: pointer;
-  transform: translate(-50%, -50%);
+
+  --base-transform: translate(-50%, -50%);
+  transform: var(--base-transform);
+
+  transition: transform 0.15s ease, background-color 0.25s ease, box-shadow 0.25s ease;
   box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-  transition: all 0.3s ease;
+  animation: pop 0.3s ease-out;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  touch-action: manipulation;
 }
 
 .bubble:hover {
-  transform: translate(-50%, -50%) scale(1.05);
+  transform: var(--base-transform) scale(1.05);
+}
+
+.bubble:active {
+  transform: var(--base-transform) scale(1.08);
 }
 
 .bubble.clicked {
@@ -111,7 +107,6 @@
 
 .bubble.correct {
   background-color: #7dbb91;
-  position: relative;
 }
 
 .bubble.error {
@@ -119,31 +114,46 @@
   animation: shake 0.5s;
 }
 
+/* Number inside bubble */
 .number {
   font-size: 1.5rem;
+  line-height: 1;
+  width: 100%;
+  text-align: center;
+  pointer-events: none;
 }
 
+/* Checkmark for correct bubble */
 .checkmark {
   position: absolute;
-  right: 5px;
   bottom: 5px;
-  font-size: 1.2rem;
+  right: 5px;
+  font-size: 1.3rem;
   color: white;
-  background-color: rgba(0,0,0,0.2);
+  background: rgba(0,0,0,0.3);
   width: 20px;
   height: 20px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
+  pointer-events: none;
+}
+
+/* ---------------- Animations ---------------- */
+@keyframes pop {
+  0% { transform: var(--base-transform) scale(0); }
+  80% { transform: var(--base-transform) scale(1.1); }
+  100% { transform: var(--base-transform) scale(1); }
 }
 
 @keyframes shake {
-  0%, 100% { transform: translate(-50%, -50%); }
+  0%, 100% { transform: var(--base-transform); }
   20%, 60% { transform: translate(-55%, -50%); }
   40%, 80% { transform: translate(-45%, -50%); }
 }
 
+/* ---------------- Start / Game Over Screens ---------------- */
 .startScreen,
 .gameOverScreen {
   position: absolute;
@@ -158,14 +168,9 @@
   background-color: rgba(245, 245, 247, 0.9);
   z-index: 20;
   outline: none;
-   -webkit-tap-highlight-color: transparent;
-  outline: none;
+  -webkit-tap-highlight-color: transparent;
   user-select: none;
-  -webkit-user-select: none;
-  -moz-user-select: none;
-  -ms-user-select: none;
 }
-
 
 .startScreen button,
 .gameOverScreen button {
@@ -173,77 +178,16 @@
   background-color: #a9c4ca;
   color: white;
   border: none;
-   outline: none;
   border-radius: 30px;
   font-size: 1rem;
   cursor: pointer;
   margin-top: 1rem;
   box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
 }
 
-.gameOverScreen h2 {
-  color: #333;
-  margin-bottom: 0.5rem;
-}
-
-.gameOverScreen p {
-  color: #666;
-  font-size: 1.2rem;
-}
-/* Enhanced visual feedback */
-.bubble.correct {
-  background-color: #7dbb91;
-  transition: background-color 0.3s ease;
-}
-
-.checkmark {
-  /* More visible checkmark */
-  font-size: 1.3rem;
-  background: rgba(255,255,255,0.3);
-}
-@keyframes pop {
-  0% { transform: translate(-50%, -50%) scale(0); }
-  80% { transform: translate(-50%, -50%) scale(1.1); }
-  100% { transform: translate(-50%, -50%) scale(1); }
-}
-
-.bubble {
-  animation: pop 0.3s ease-out;
-   transition: transform 0.2s ease, background-color 0.3s;
-}
-.bubble:active {
-  transform: translate(-50%, -50%) scale(1.1);
-}
-/* Add these styles at the bottom of your CSS file */
-.particleBackground {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  z-index: 0;
-  pointer-events: none;
-}
-
-.particle {
-  position: absolute;
-  width: 5px;
-  height: 5px;
-  background-color: rgba(50, 52, 53, 0.4);
-  border-radius: 50%;
-  animation: float 15s linear infinite;
-}
-
-@keyframes float {
-  0% {
-    transform: translateY(100vh);
-  }
-  100% {
-    transform: translateY(-20vh);
-  }
-}
-/* PASTE AT BOTTOM OF FILE */
+/* ---------------- Round Transition & Perfect Round ---------------- */
 .roundTransition {
   position: fixed;
   top: 0;
@@ -251,10 +195,13 @@
   width: 100%;
   height: 100%;
   background: rgba(245, 245, 247, 0.9);
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column; /* stack vertically */
+  justify-content: center; /* vertical centering */
+  align-items: center;     /* horizontal centering */
   z-index: 100;
   animation: fadeIn 0.3s ease-out;
+  gap: 1rem; /* space between round title and countdown */
 }
 
 .roundTransition h2 {
@@ -267,12 +214,19 @@
   color: #a9c4ca;
   animation: pulse 1s infinite;
 }
+.roundTimer {
+  font-size: 1.2rem;
+  color: #ff6b6b;
+  font-weight: bold;
+  margin-top: 0.5rem;
+}
 
 @keyframes pulse {
   0% { transform: scale(1); opacity: 1; }
   50% { transform: scale(1.2); opacity: 0.7; }
   100% { transform: scale(1); opacity: 1; }
 }
+
 .perfectRoundCelebration {
   position: fixed;
   top: 20%;
@@ -288,54 +242,46 @@
   z-index: 200;
   animation: popIn 0.5s ease forwards;
 }
-@media (max-width: 600px) {
-  .bubblesContainer {
-    height: 70vh; /* limit bubble container height on mobile */
-  }
-}
 
 @keyframes popIn {
   0% { opacity: 0; transform: translateX(-50%) scale(0.7); }
   100% { opacity: 1; transform: translateX(-50%) scale(1); }
 }
-.statusBar {
-  display: flex;
-  justify-content: center;
-  gap: 2rem;
-  margin: 0.5rem 0;
-  font-weight: 600;
-  font-size: 1.1rem;
-  color: #a9c4ca;
-  /* background: rgba(0, 0, 0, 0.3); */
-  padding: 6px 12px;
-  border-radius: 8px;
-  user-select: none;
-}
-.startButton, .returnButton {
-  -webkit-tap-highlight-color: transparent;
-  outline: none !important;
-  user-select: none;
-  touch-action: manipulation;
-}
 
-
-
-.bubble {
-  -webkit-tap-highlight-color: transparent;
-  outline: none;
-  user-select: none;
-  -webkit-user-select: none;
-  -moz-user-select: none;
-  -ms-user-select: none;
-}
-.bubble {
-  touch-action: manipulation;
-}
-@media (hover: none) and (pointer: coarse) {
- .startButton:focus {
-    outline: none;
+/* ---------------- Responsive ---------------- */
+@media (max-width: 600px) {
+  .bubblesContainer {
+    height: 70vh;
   }
- .returnButton:focus {
-    outline: none;
+
+  .bubble {
+    width: 70px;   /* taller oval on mobile */
+    height: 100px;
+    border-radius: 50% / 40%;
   }
+
+  .number {
+    font-size: 1.5rem;
+  }
+
+  .checkmark {
+    font-size: 1.2rem;
+    width: 18px;
+    height: 18px;
+  }
+
+  .roundTransition h2 {
+    font-size: 2.5rem;
+  }
+
+  .countdown {
+    font-size: 4rem;
+  }
+  .roundTimer {
+  font-size: 1.2rem;
+  color: #ff6b6b;
+  font-weight: bold;
+  margin-top: 0.5rem;
+}
+
 }
