@@ -1,13 +1,13 @@
-// components/BubbleGame.jsx
 "use client";
 import ParticlesBackground from './ParticlesBackground';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import styles from './BubbleGame.module.css';
 
-const BubbleGame = ({ onRestart }) => {
-
-  // Game state
-  const [gameState, setGameState] = useState('idle');
+const BubbleGame = () => {
+  // --- Game State ---
+  const [gameState, setGameState] = useState('idle'); 
+  const [isPaused, setIsPaused] = useState(false);
+  
   const [numbers, setNumbers] = useState([]);
   const [positions, setPositions] = useState([]);
   const [score, setScore] = useState(0);
@@ -16,441 +16,502 @@ const BubbleGame = ({ onRestart }) => {
   const [error, setError] = useState(false);
   const [clickedNumbers, setClickedNumbers] = useState([]);
   const [correctNumbers, setCorrectNumbers] = useState([]);
+  
+  // UI States
   const [countdown, setCountdown] = useState(3);
+  const [roundTimer, setRoundTimer] = useState(10);
   const [showPerfectRound, setShowPerfectRound] = useState(false);
-const [won, setWon] = useState(false);
-const [gameStarted, setGameStarted] = useState(false);
-const [roundTimer, setRoundTimer] = useState(10); // current timer countdown
-const [timerSpeed, setTimerSpeed] = useState(10000); // round duration in ms
-const roundTimerRef = useRef(null); // ref to store interval
+  const [showRoundScreen, setShowRoundScreen] = useState(false);
+  const [won, setWon] = useState(false);
+  const [highScore, setHighScore] = useState(0);
 
+  // --- Settings State ---
+  const [showMenu, setShowMenu] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [settings, setSettings] = useState({ music: true, sfx: true, vibration: true });
 
+  // --- Refs ---
+  const roundTimerRef = useRef(null);
+  const countdownIntervalRef = useRef(null);
+  const hideTimerRef = useRef(null);
+  const remainingTimeRef = useRef(10000); 
+  
+  // Anti-double-click ref
+  const processingClickRef = useRef(new Set());
 
-
-
-// music
-  const audioRef = useRef(null);           // background music
+  // Audio Refs
+  const audioRef = useRef(null);
   const correctAudioRef = useRef(null);
   const wrongAudioRef = useRef(null);
   const gameOverAudioRef = useRef(null);
   const winAudioRef = useRef(null);
   const startSoundRef = useRef(null);
-const returnSoundRef = useRef(null);
-const tickAudioRef = useRef(null);
+  // ✅ FIXED: Added missing returnSoundRef
+  const returnSoundRef = useRef(null); 
+  const tickAudioRef = useRef(null);
 
-useEffect(() => {
-  const handleVisibilityChange = () => {
-    if (document.hidden) {
-      audioRef.current?.pause();
-    } else {
-      audioRef.current?.play().catch(() => {});
-    }
-  };
-
-  document.addEventListener('visibilitychange', handleVisibilityChange);
-
-  return () => {
-    document.removeEventListener('visibilitychange', handleVisibilityChange);
-  };
-}, []);
-
-
-
-
-
-  const [showRoundScreen, setShowRoundScreen] = useState(false);
-const [perfectRound, setPerfectRound] = useState(false); // For suggestion #5
-
-// PASTE INSIDE startRound FUNCTION (replace your current one)
-
-  // Configuration
-  const initialCount = 3;
   const maxRound = 20;
-  const initialRevealTime = 3000;
-  const minRevealTime = 1000;
-// max 7 seconds (7000 ms)
 
-  
-const [highScore, setHighScore] = useState(0);
-
-useEffect(() => {
-  const savedHighScore = localStorage.getItem('highScore');
-  if (savedHighScore) setHighScore(parseInt(savedHighScore));
-}, []);
-  
-  const vibrate = (pattern = 200) => {
-  if (navigator.vibrate) navigator.vibrate(pattern);
-};
-
-
-
+  // --- 1. Init & Cleanup ---
   useEffect(() => {
-    if (!audioRef.current) return;
+    const savedHighScore = parseInt(localStorage.getItem('highScore')) || 0;
+    const tutorialSeen = localStorage.getItem('tutorialSeen') === 'true';
 
-    let targetVolume;
-    if (gameState === 'playing') {
-      targetVolume = 1.0;  // loud when playing
-    } else if (gameState === 'showing' || gameState === 'idle') {
-      targetVolume = 0.3;  // quieter during countdown or idle
-    } else if (gameState === 'gameover') {
-      targetVolume = 0.1;  // very low on game over
-    } else {
-      targetVolume = 0.1;  // fallback volume
-    }
+    setHighScore(savedHighScore);
+    if (!tutorialSeen) setShowTutorial(true);
 
-    const duration = 1000; // 1 second fade
-    const stepTime = 50;
-    const steps = duration / stepTime;
-    const volumeStep = (targetVolume - audioRef.current.volume) / steps;
-    let currentStep = 0;
+    return () => clearAllTimers();
+  }, []);
 
-    const interval = setInterval(() => {
-      if (audioRef.current) {
-        audioRef.current.volume = Math.min(
-          Math.max(audioRef.current.volume + volumeStep, 0),
-          1
-        );
+  // --- 2. AUDIO: Visibility Logic ---
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // 🛑 PAUSE EVERYTHING
+        audioRef.current?.pause();
+        tickAudioRef.current?.pause();
+        
+        // Soft pause logic if hidden
+        if (gameState === 'playing' && !isPaused) {
+           clearInterval(roundTimerRef.current);
+        }
+      } else {
+        // ▶️ RESUME
+        if (!isPaused && (gameState === 'playing' || gameState === 'showing')) {
+          if (settings.music) audioRef.current?.play().catch(() => {});
+          
+          // Resume timer if playing
+          if (gameState === 'playing') {
+             startTimer(remainingTimeRef.current);
+          }
+        }
       }
-      currentStep++;
-      if (currentStep >= steps) clearInterval(interval);
-    }, stepTime);
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [gameState, isPaused, settings.music]);
 
-    return () => clearInterval(interval);
-  }, [gameState]);
+  const clearAllTimers = useCallback(() => {
+    if (roundTimerRef.current) clearInterval(roundTimerRef.current);
+    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    
+    if (tickAudioRef.current) {
+      tickAudioRef.current.pause();
+      tickAudioRef.current.currentTime = 0;
+    }
+  }, []);
 
-// Call vibrate() on correct/wrong answers
-  // Generate random positions
-const generatePositions = useCallback((count) => {
-  const positions = [];
-  
-  const minDistanceX = 20; // horizontal minimum distance in %
-  const minDistanceY = 25; // vertical minimum distance in %
+  const vibrate = (pattern = 200) => {
+    if (settings.vibration && typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(pattern);
+    }
+  };
 
-  function distance(pos1, pos2) {
-    const dx = pos1.left - pos2.left;
-    const dy = pos1.top - pos2.top;
-    // Use separate x and y checks for oval spacing
-    return Math.abs(dx) > minDistanceX || Math.abs(dy) > minDistanceY;
-  }
+  // --- 3. Generators ---
+  const generatePositions = useCallback((count) => {
+    const newPositions = [];
+    for (let i = 0; i < count; i++) {
+      let position, attempts = 0, overlaps = true;
+      while (overlaps && attempts < 200) {
+        attempts++;
+        const left = 10 + Math.random() * 80; 
+        const top = 15 + Math.random() * 70;
+        const hasCollision = newPositions.some(pos => {
+          const dx = pos.left - left;
+          const dy = (pos.top - top) * 1.5; 
+          return Math.sqrt(dx*dx + dy*dy) < 22; 
+        });
+        if (!hasCollision) { position = { left, top }; overlaps = false; }
+      }
+      if (!position) position = { left: 50, top: 50 };
+      newPositions.push(position);
+    }
+    return newPositions;
+  }, []);
 
-  for (let i = 0; i < count; i++) {
-    let newPos;
-    let tries = 0;
-    do {
-      newPos = {
-        left: 10 + Math.random() * 80,  // 10% to 90%
-        top: 15 + Math.random() * 70    // 15% to 85%
-      };
-      tries++;
-      if (tries > 200) break; // fail-safe to avoid infinite loops
-    } while (!positions.every(pos => distance(pos, newPos))); // ensure all existing positions are far enough
-    positions.push(newPos);
-  }
-
-  return positions;
-}, []);
-
-
-
-  // Generate unique numbers
   const generateNumbers = useCallback((count) => {
     const nums = new Set();
-    while (nums.size < count) {
-      nums.add(Math.floor(Math.random() * 21));
-    }
+    while (nums.size < count) nums.add(Math.floor(Math.random() * 20) + 1);
     return Array.from(nums);
   }, []);
 
+  // --- 4. Timer Logic ---
+  const startTimer = (durationMs) => {
+    if (roundTimerRef.current) clearInterval(roundTimerRef.current);
+    
+    const startTime = Date.now();
+    const endTime = startTime + durationMs;
+    const roundTotalDuration = Math.max(10000 - ((round - 1) * 500), 2000);
 
-const startRound = useCallback((roundNum) => {
-  setShowRoundScreen(true);
-  setCountdown(3);
+    roundTimerRef.current = setInterval(() => {
+        if (document.hidden) return;
 
-  let counter = 3;
-  const interval = setInterval(() => {
-    counter -= 1;
-    if (counter === 0) {
-      clearInterval(interval);
-      setShowRoundScreen(false);
+        const now = Date.now();
+        const msLeft = endTime - now;
+        remainingTimeRef.current = msLeft; 
 
-      const count = 4;
-      const nums = generateNumbers(count);
-      const pos = generatePositions(count);
-      setNumbers(nums);
-      setPositions(pos);
-      setCurrentStep(0);
-      setError(false);
-      setClickedNumbers([]);
-      setCorrectNumbers([]);
-      setGameState('showing');
+        const progress = (roundTotalDuration - msLeft) / roundTotalDuration;
+        const visualRemaining = 10 * (1 - progress); 
 
-      const revealTime = Math.max(initialRevealTime - (roundNum - 1) * 500, minRevealTime);
+        if (msLeft <= 0) {
+            handleGameOver();
+        } else {
+            setRoundTimer(Math.max(0, Math.ceil(visualRemaining)));
+            if (visualRemaining <= 3.5 && settings.sfx) { 
+               if (!document.hidden && tickAudioRef.current?.paused) {
+                 tickAudioRef.current.play().catch(()=>{});
+               }
+            }
+        }
+    }, 100);
+  };
 
-      setTimeout(() => {
+  const handleGameOver = () => {
+    setRoundTimer(0);
+    clearAllTimers(); 
+    setError(true);
+    setGameState('gameover');
+    
+    if (settings.sfx && !document.hidden) {
+        gameOverAudioRef.current?.play().catch(()=>{});
+    }
+  };
+
+  const shareScore = () => {
+    const text = `🧠 I scored ${score} on Memory Bubbles! High Score: ${highScore}. Can you beat me?`;
+    if (navigator.share) {
+      navigator.share({
+        title: 'Memory Bubbles',
+        text: text,
+        url: window.location.href,
+      }).catch(console.error);
+    } else {
+      navigator.clipboard.writeText(text);
+      alert("Score copied to clipboard!");
+    }
+  };
+
+  // --- 5. Core Game Flow ---
+  const startRound = useCallback((roundNum) => {
+    clearAllTimers(); 
+    setRoundTimer(10); 
+    processingClickRef.current.clear();
+
+    setShowRoundScreen(true);
+    setCountdown(3);
+    
+    let counter = 3;
+    countdownIntervalRef.current = setInterval(() => {
+      counter -= 1;
+      if (counter > 0) {
+        setCountdown(counter);
+      } else {
+        clearInterval(countdownIntervalRef.current);
+        setShowRoundScreen(false);
+
+        const count = Math.min(3 + Math.floor((roundNum - 1) / 2), 8); 
+        setNumbers(generateNumbers(count));
+        setPositions(generatePositions(count));
+        setCurrentStep(0);
+        setError(false);
+        setClickedNumbers([]);
+        setCorrectNumbers([]);
+        
+        setGameState('showing'); 
+      }
+    }, 1000);
+  }, [generateNumbers, generatePositions, clearAllTimers]);
+
+  useEffect(() => {
+    if (gameState === 'showing' && !isPaused) {
+      const revealTime = Math.max(3000 - (round - 1) * 300, 1000);
+      
+      hideTimerRef.current = setTimeout(() => {
         setGameState('playing');
-
-        // ----------------- START ROUND TIMER -----------------
-        const duration = Math.max(10000 - (roundNum - 1) * 1000, 5000); // 10s → 5s max speed
-        setTimerSpeed(duration);
-        setRoundTimer(duration / 1000);
-
-        // Clear previous timer if exists
-        if (roundTimerRef.current) clearInterval(roundTimerRef.current);
-
-        let timer = duration / 1000;
-        roundTimerRef.current = setInterval(() => {
-          timer -= 1;
-          setRoundTimer(timer);
-        // When game over happens, also reset the countdown
-if (timer <= 0) {
-  clearInterval(roundTimerRef.current);
-  roundTimerRef.current = null;
-
-  setError(true);
-  setGameState('gameover');
-  setCountdown(0); // hide countdown
-  gameOverAudioRef.current?.play();
-}
-
-        }, 1000);
-
+        const realDuration = Math.max(10000 - ((round - 1) * 500), 2000); 
+        startTimer(realDuration);
       }, revealTime);
 
-    } else {
-      setCountdown(counter);
+      return () => clearTimeout(hideTimerRef.current);
     }
-  }, 500);
-}, [generateNumbers, generatePositions]);
+  }, [gameState, round, isPaused]); 
 
+  const startGame = useCallback(() => {
+    if (showTutorial) return; 
+    clearAllTimers();
+    setScore(0);
+    setRound(1);
+    setWon(false);
+    setRoundTimer(10); 
+    setIsPaused(false);
+    startRound(1);
+    
+    if (settings.music && audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.volume = 0.5;
+      audioRef.current.play().catch(() => {});
+    }
+  }, [startRound, clearAllTimers, showTutorial, settings.music]);
 
-const startGame = useCallback(() => {
-  setGameStarted(true);
-  setScore(0);
-  setRound(1);
-  setClickedNumbers([]);
-  setCorrectNumbers([]);
-  setRoundTimer(10);        // reset timer
-  if (roundTimerRef.current) {
-    clearInterval(roundTimerRef.current);
-    roundTimerRef.current = null;
-  }
-  startRound(1);
-  if (audioRef.current) {
-    audioRef.current.play().catch(() => {});
-  }
-}, [startRound]);
+  // --- 6. Menus ---
+  const togglePause = () => {
+    if (gameState === 'idle' || gameState === 'gameover') return;
 
+    if (!isPaused) {
+        setIsPaused(true);
+        setShowMenu(true);
+        clearAllTimers(); 
+        if (audioRef.current) audioRef.current.pause();
+    } else {
+        setIsPaused(false);
+        setShowMenu(false);
+        if (gameState === 'playing') startTimer(remainingTimeRef.current); 
+        if (settings.music && audioRef.current) audioRef.current.play().catch(()=>{});
+    }
+  };
 
+  const resetGameData = () => {
+    if (confirm("Reset high score?")) {
+        localStorage.clear();
+        setHighScore(0);
+        setShowMenu(false);
+        setIsPaused(false);
+        setGameState('idle');
+        location.reload(); 
+    }
+  };
 
-  // Start new round
-// Update the startRound function in your BubbleGame component
+  // --- 7. Interaction ---
+  const handleClick = (num) => {
+    if (gameState !== 'playing' || isPaused) return;
 
+    if (processingClickRef.current.has(num)) return;
+    processingClickRef.current.add(num);
 
+    const sorted = [...numbers].sort((a, b) => a - b);
+    setClickedNumbers(prev => [...prev, num]);
 
-
-
-  // Handle bubble click
-const handleClick = (num) => {
-  if (gameState !== 'playing') return;
-
-  const sorted = [...numbers].sort((a, b) => a - b);
-
-  // Track clicked numbers
-  setClickedNumbers(prev => [...prev, num]);
-
-  if (num === sorted[currentStep]) {
-    // ✅ Correct click
-    setCorrectNumbers(prev => [...prev, num]);
-    vibrate(100);
-    correctAudioRef.current?.play();
-
-    // Check if round is complete
-    if (currentStep + 1 === sorted.length) {
-      const updatedScore = score + numbers.length;
-      const newRound = round + 1;
-
-      // Update high score
-      if (updatedScore > highScore) {
-        localStorage.setItem('highScore', updatedScore);
-        setHighScore(updatedScore);
+    if (num === sorted[currentStep]) {
+      setCorrectNumbers(prev => [...prev, num]);
+      vibrate(50);
+      
+      if(settings.sfx) {
+         const sound = correctAudioRef.current?.cloneNode();
+         if(sound) { sound.volume = 0.6; sound.play().catch(()=>{}); }
       }
-      setScore(updatedScore);
 
-      // Perfect round celebration
-     // Perfect round celebration
-if (!error) {
-  setShowPerfectRound(true);
+      if (currentStep + 1 === sorted.length) {
+        clearAllTimers(); 
+        setRoundTimer(10); 
 
-  // Stop the current round timer immediately
-  if (roundTimerRef.current) {
-    clearInterval(roundTimerRef.current);
-    roundTimerRef.current = null;
-    setRoundTimer(0); // reset timer display
-  }
+        // Score: 1 pt per bubble + time bonus
+        const basePoints = numbers.length; 
+        const timeBonus = Math.floor(roundTimer); 
+        const roundScore = basePoints + timeBonus;
+        const newScore = score + roundScore;
 
-  setTimeout(() => setShowPerfectRound(false), 1000);
-}
+        if (newScore > highScore) {
+          localStorage.setItem('highScore', newScore);
+          setHighScore(newScore);
+        }
+        setScore(newScore);
 
+        if (!error) {
+          setShowPerfectRound(true);
+          setTimeout(() => setShowPerfectRound(false), 1200);
+        }
 
-      if (newRound > maxRound) {
-        // 🎉 Player won
-        setWon(true);
-        setGameState('gameover');
-        winAudioRef.current?.play();
+        if (round + 1 > maxRound) {
+          setWon(true);
+          handleGameOver();
+          if(settings.sfx) winAudioRef.current?.play();
+        } else {
+          setRound(r => r + 1);
+          setTimeout(() => startRound(round + 1), 1000);
+        }
       } else {
-        // Start next round
-        setRound(newRound);
-        startRound(newRound);
+        setCurrentStep(prev => prev + 1);
       }
     } else {
-      // Move to next number in sequence
-      setCurrentStep(prev => prev + 1);
+      clearAllTimers(); 
+      setError(true);
+      vibrate([200, 100, 200]);
+      if(settings.sfx) wrongAudioRef.current?.play();
+      setTimeout(() => {
+        setGameState('gameover');
+        if(settings.sfx && !document.hidden) gameOverAudioRef.current?.play();
+      }, 500);
     }
-  } else {
-    // ❌ Wrong click → immediate game over
-    setError(true);
-    vibrate([200, 100, 200]);
-    wrongAudioRef.current?.play();
-
-    // Optional short delay for shake animation
-    setTimeout(() => {
-      setGameState('gameover');
-      gameOverAudioRef.current?.play();
-    }, 300);
-  }
-};
-
-
-// And add this useEffect somewhere inside your component to handle health increment:
-
-
-
+  };
 
   return (
-    
     <div className={styles.container}>
       <ParticlesBackground />
-       {/* Background music */}
+      
       <audio ref={audioRef} src="/bgmusic.mp3" loop preload="auto" />
-
-      {/* Sound effects */}
       <audio ref={tickAudioRef} src="/gametimer.mp3" preload="auto" />
-
       <audio ref={correctAudioRef} src="/tap.wav" preload="auto" />
       <audio ref={wrongAudioRef} src="/error.mp3" preload="auto" />
       <audio ref={gameOverAudioRef} src="/over.wav" preload="auto" />
       <audio ref={winAudioRef} src="/win.wav" preload="auto" />
-  <audio ref={startSoundRef} src="/start.wav" />
-<audio ref={returnSoundRef} src="/return.wav" />
+      <audio ref={startSoundRef} src="/start.wav" />
+      <audio ref={returnSoundRef} src="/return.wav" />
 
-
+      {/* --- HUD --- */}
       <div className={styles.header}>
-        <div className={styles.icon}>🧠</div>
-        <div className={styles.roundTimer}>
-  ⏱ {roundTimer}s
-</div>
+        <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}>
+            <div className={styles.statBadge}>
+                <span className={styles.currencyIcon}>🏆</span> {highScore}
+            </div>
+            {gameState !== 'idle' && (
+               <div className={styles.statBadge} style={{color: '#3b82f6'}}>
+                  <span>Score:</span> {score}
+               </div>
+            )}
+        </div>
+        
+        <div className={styles.timerWrapper}>
+            <div className={`${styles.roundTimer} ${roundTimer <= 3 ? styles.timerWarning : ''}`}>
+            {roundTimer}
+            </div>
+        </div>
 
-       
-
-        <div className={styles.score}>Score: {score}
-</div>
-        <div className={styles.icon}>☰</div>
+        <button className={styles.hamburger} onClick={togglePause}>
+            <div className={styles.bar}></div>
+            <div className={styles.bar}></div>
+        </button>
       </div>
 
-
-
+      {/* --- Bubbles --- */}
       <div className={styles.bubblesContainer}>
         {numbers.map((num, i) => (
           <button
-            key={i}
-            className={`${styles.bubble} ${error ? styles.error : ''} ${
-              clickedNumbers.includes(num) ? styles.clicked : ''
-            } ${correctNumbers.includes(num) ? styles.correct : ''}`}
+            key={`${round}-${i}`}
+            className={`
+              ${styles.bubble} 
+              ${error ? styles.error : ''} 
+              ${clickedNumbers.includes(num) ? styles.clicked : ''} 
+              ${correctNumbers.includes(num) ? styles.correct : ''}
+              ${gameState === 'showing' ? styles.visible : ''}
+            `}
             style={{
-              left: `${positions[i]?.left || 0}%`,
-              top: `${positions[i]?.top || 0}%`
+              left: `${positions[i]?.left}%`,
+              top: `${positions[i]?.top}%`
             }}
             onClick={() => handleClick(num)}
+            disabled={gameState !== 'playing' || isPaused}
           >
             <span className={styles.number}>
-  {(gameState === 'showing' || gameState === 'gameover' || clickedNumbers.includes(num))
-    ? num
-    : ''}
-</span>
-
-            {correctNumbers.includes(num) && (
-              <span className={styles.checkmark}>✓</span>
-            )}
+              {(gameState === 'showing' || gameState === 'gameover' || clickedNumbers.includes(num)) ? num : ''}
+            </span>
+            {correctNumbers.includes(num) && <span className={styles.checkmark}>✓</span>}
           </button>
         ))}
       </div>
 
-      {gameState === 'idle' && (
-        <div className={styles.startScreen}>
-          <button onClick={() => {
-  if (startSoundRef.current) {
-    startSoundRef.current.currentTime = 0;
-    startSoundRef.current.play().catch(() => {});
-  }
-  startGame();
-}}>Start Game</button>
+      {/* --- PAUSE MENU --- */}
+      {showMenu && (
+        <div className={styles.modalOverlay}>
+            <div className={styles.modalContent}>
+                <h2>Paused</h2>
+                <div className={styles.settingRow}>
+                    <span>Music</span>
+                    <button className={`${styles.toggleBtn} ${settings.music ? styles.active : ''}`} 
+                        onClick={() => setSettings({...settings, music: !settings.music})}>
+                        {settings.music ? 'ON' : 'OFF'}
+                    </button>
+                </div>
+                <div className={styles.settingRow}>
+                    <span>Sound FX</span>
+                    <button className={`${styles.toggleBtn} ${settings.sfx ? styles.active : ''}`}
+                        onClick={() => setSettings({...settings, sfx: !settings.sfx})}>
+                        {settings.sfx ? 'ON' : 'OFF'}
+                    </button>
+                </div>
+                <div className={styles.settingRow}>
+                    <span>Haptics</span>
+                    <button className={`${styles.toggleBtn} ${settings.vibration ? styles.active : ''}`}
+                        onClick={() => setSettings({...settings, vibration: !settings.vibration})}>
+                        {settings.vibration ? 'ON' : 'OFF'}
+                    </button>
+                </div>
 
+                <div style={{marginTop: '20px', marginBottom: '20px', fontSize: '0.8rem', color: '#6b7280', display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center'}}>
+                   <a href="https://doc-hosting.flycricket.io/brainbuffer-privacy-policy/d39bde6f-7aa1-492b-b647-030966c55a88/privacy" target="_blank" rel="noopener noreferrer" style={{textDecoration: 'underline', color: '#3b82f6'}}>
+                      Privacy Policy
+                   </a>
+                   <span>v1.0 • Made with ❤️ by yaseir.png</span>
+                </div>
+
+                <div className={styles.menuActions}>
+                    <button className={styles.primaryBtn} onClick={togglePause}>Resume</button>
+                    <button className={styles.secondaryBtn} style={{background: '#ffe4e6', color: '#e11d48'}} onClick={resetGameData}>Reset High Score</button>
+                    <button className={styles.dangerBtn} onClick={() => { togglePause(); setGameState('idle'); clearAllTimers(); }}>Quit Game</button>
+                </div>
+            </div>
         </div>
       )}
 
-    {gameState === 'gameover' && (
-  <div className={styles.gameOverScreen}>
-    {won ? (
-      <>
-        <h2>🎉 Congratulations, You Won! 🎉</h2>
-        <p>Final Score: {score}</p>
-      </>
-    ) : (
-      <>
-        <h2>Game Over</h2>
-        <p>Score: {score}</p>
-      </>
-    )}
- <button onClick={() => {
-  // Stop all audio before restarting
-  winAudioRef.current?.pause();
-  winAudioRef.current.currentTime = 0;
-  gameOverAudioRef.current?.pause();
-  gameOverAudioRef.current.currentTime = 0;
-  wrongAudioRef.current?.pause();
-  wrongAudioRef.current.currentTime = 0;
-  correctAudioRef.current?.pause();
-  correctAudioRef.current.currentTime = 0;
+      {/* --- TUTORIAL --- */}
+      {showTutorial && (
+        <div className={styles.tutorialOverlay}>
+            <div className={styles.tutorialCard}>
+                <h2>How to Play 🧠</h2>
+                <div className={styles.tutorialStep}>1. Memorize numbers.</div>
+                <div className={styles.tutorialStep}>2. Tap in order (1, 2, 3...) after they hide.</div>
+                <button className={styles.tutorialBtn} onClick={() => { setShowTutorial(false); localStorage.setItem('tutorialSeen', 'true'); }}>Got it!</button>
+            </div>
+        </div>
+      )}
 
-  if (returnSoundRef.current) {
-    returnSoundRef.current.currentTime = 0;
-    returnSoundRef.current.play().catch(() => {});
-  }
+      {/* --- SCREENS --- */}
+      {gameState === 'idle' && !showTutorial && (
+        <div className={styles.startScreen}>
+          <h1>BrainBuffer</h1>
+          <div className={styles.statBadge} style={{marginBottom:'20px'}}>🏆 High Score: {highScore}</div>
+          <button onClick={() => { startSoundRef.current?.play(); startGame(); }}>
+            Start Game
+          </button>
+        </div>
+      )}
 
-  setWon(false); // reset winning state
-  startGame();
-}}>
-  Restart
-</button>
+      {gameState === 'gameover' && (
+        <div className={styles.gameOverScreen}>
+          <h2>{won ? "You Won! 🎉" : "Game Over"}</h2>
+          <p>Final Score: {score}</p>
+          
+          <button onClick={() => { returnSoundRef.current?.play(); startGame(); }}>
+            Try Again
+          </button>
+          
+          <button className={styles.secondaryBtn} style={{marginTop: '10px'}} onClick={shareScore}>
+             Share Score 📤
+          </button>
+          
+          <button 
+             className={styles.secondaryBtn} 
+             style={{ marginTop: '10px', width: 'auto', padding: '12px 30px' }} 
+             onClick={() => setGameState('idle')}
+          >
+             Home
+          </button>
+        </div>
+      )}
 
-  </div>
-  
-)}
+      {showRoundScreen && (
+        <div className={styles.roundTransition}>
+          <h2>Round {round}</h2>
+          <div className={styles.countdown}>{countdown}</div>
+        </div>
+      )}
 
-{showRoundScreen && (
-  <div className={styles.roundTransition}>
-    <h2>Round {round}</h2>
-    <div className={styles.countdown}>{countdown}</div>
-  </div>
-)}
-
-
-{showPerfectRound && (
-  <div className={styles.perfectRoundCelebration}>
-    🎉 Perfect Round! 🎉
-  </div>
-)}
-
+      {showPerfectRound && (
+        <div className={styles.perfectRoundCelebration}>
+          Perfect!
+        </div>
+      )}
     </div>
   );
 };

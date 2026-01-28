@@ -2,8 +2,16 @@ import './globals.css'
 import Head from 'next/head'
 
 export const metadata = {
-  title: 'Neuron — Brain Trainer',
-  description: 'Short-term memory training game built with Next.js and Tailwind CSS'
+  title: 'BrainBuffer | Visual Memory Training',
+  description: 'Boost your cognitive speed with BrainBuffer. Memorize floating numbers, challenge your short-term recall, and compete for the high score in this fast-paced brain training game.',
+  keywords: ['memory game', 'brain training', 'cognitive test', 'visual memory', 'puzzle game', 'mind game'],
+  authors: [{ name: 'Muhammad Yasir' }],
+  applicationName: 'BrainBuffer',
+  openGraph: {
+    title: 'BrainBuffer - Can you beat the high score?',
+    description: 'Test your short-term memory speed. Memorize the bubbles before they vanish!',
+    type: 'website',
+  },
 }
 
 export default function RootLayout({ children }) {

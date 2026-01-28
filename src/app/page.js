@@ -8,7 +8,7 @@ export default function Home() {
   return (
     <>
       <Head>
-        <title>Number Bubble Game</title>
+        <title>BrainBuffer</title>
         <meta name="description" content="Interactive number bubble game" />
       </Head>
       
